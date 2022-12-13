@@ -1,4 +1,4 @@
-import { Anchor, Button, TextField, WindowContent, Table, TableHead, TableRow, TableHeadCell, TableBody, TableDataCell, Fieldset, Panel } from "react95";
+import { Anchor, Button, WindowContent, Table, TableHead, TableRow, TableHeadCell, TableBody, TableDataCell, Fieldset, Panel } from "react95";
 import React from "react";
 import { erc721ABI, useAccount, useContractRead, useContractReads, useContractWrite, useNetwork, usePrepareContractWrite } from "wagmi";
 import BigNumber from "bignumber.js";
@@ -12,17 +12,22 @@ import LSSVMSwap from '../../abis/LSSVMSwap.json'
 import { hexZeroPad } from "ethers/lib/utils";
 import { useApproveNFT } from "../../interactors/useApproveNFT";
 import { setSelectedRow } from "../../reducers/pool";
-
+import { usePrompt } from "../../hooks/usePrompt";
+import { setModalStatus } from "../../reducers/modal";
+import { ModalTypes } from "../../constants/modalTypes";
 
 const factoryAddress = {
-  '5': '0x9DdBea8C5a1fBbaFB06d7CFF1d17a6A3FdFc5080'
+  '5': '0x9DdBea8C5a1fBbaFB06d7CFF1d17a6A3FdFc5080',
+  '1': '0x142abF0BDb409cb047c79229e3aD749371E82f87'
 }
 
 const alchemyAddress = {
-  '5': 'https://eth-goerli.g.alchemy.com/v2/' + process.env.REACT_APP_ALCHEMY_API_TOKEN
+  '5': 'https://eth-goerli.g.alchemy.com/v2/' + process.env.REACT_APP_ALCHEMY_API_TOKEN,
+  '1': 'https://eth-mainnet.g.alchemy.com/v2/' + process.env.REACT_APP_ALCHEMY_API_TOKEN
 }
 const wethAddress = {
-  '5': '0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6'
+  '5': '0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6',
+  '1': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'
 }
 export function MyListings() {
   /**
@@ -35,11 +40,11 @@ export function MyListings() {
   /**
    * Redux
    */
-  const selectedNFTs = useSelector((state) => state.selectNFT);
+  const { selectedNFTs, isSameCollection } = useSelector((state) => state.selectNFT);
   const dispatch = useDispatch();
 
   /**
-   * User states 
+   * User states
    */
   // TODO: Move to Redux
   const selectedRow = useSelector((state) => state.pool.selectedRow);
@@ -63,6 +68,7 @@ export function MyListings() {
   const [poolsTxCount, setPoolsTxCount] = React.useState({})
   const [isModifyingNFTOfPool, setIsModityingNFTOfPool] = React.useState(0)
   const [myNFTs, setMyNFTs] = React.useState([])
+  const { promptDialog } = usePrompt();
 
   /**
    * Wagmi calls
@@ -158,6 +164,7 @@ export function MyListings() {
   const { write: writeApprove, ...l } = useApproveNFT(selectedRow?.collection?.address, selectedRow?.poolAddress, true)
   const data = selectedPoolsData?.[0]
   const NFTIdsListed = heldIDs
+  console.log(heldIDs)
   const [withdrawalAmount, setWithdrawalAmount] = React.useState(null)
   const { config: withdrawConfig } = usePrepareContractWrite({
     addressOrName: selectedRow?.poolAddress,
@@ -244,6 +251,7 @@ export function MyListings() {
   })
 
   React.useEffect(() => {
+    setMyNFTs([])
     async function x() {
       dispatch(unselectAll())
       const res = await axios.get(`https://core-service-ipnp6ty54a-uc.a.run.app/v0/collaterals?owner=${address}&ethereum=0x${chain?.id.toString(16)}`)
@@ -252,13 +260,30 @@ export function MyListings() {
 
     async function y() {
       dispatch(unselectAll())
-      const res = await Promise.all(tokenURIs.map(async (n) => await axios.get(n)))
-      setMyNFTs(res.map((re, i) => ({ ...re.data, id: NFTIdsListed?.[i].toString(), address: selectedRow?.address })))
+      try {
+        const res = await Promise.allSettled(tokenURIs.map(async (n) => await axios.get(n)))
+        setMyNFTs(tokenURIs.map((re, i) => ({ ...res[i].value?.data || { name: selectedRow?.symbol }, id: NFTIdsListed?.[i].toString(), address: selectedRow?.address })))
+
+      } catch (e) {
+        console.log(e)
+        setMyNFTs(tokenURIs.map((re, i) => ({ name: selectedRow?.symbol, id: NFTIdsListed?.[i].toString(), address: selectedRow?.address })))
+
+      }
     }
     if (isModifyingNFTOfPool == 1) x()
     else if (isModifyingNFTOfPool == 2 && tokenURIs?.[0]) y()
     else setMyNFTs([])
   }, [isModifyingNFTOfPool, selectedRow])
+
+  React.useEffect(() => {
+    if (!isSameCollection) {
+      dispatch(setModalStatus({
+        type: ModalTypes.ERROR,
+        message: 'Can only select NFTs from the same collection'
+      }))
+    }
+  }, [isSameCollection])
+
 
   /**
    * Dependent auto states
@@ -308,14 +333,14 @@ export function MyListings() {
     <br></br>
     {selectedRow?.collection ? <Fieldset label="Actions">
       <Button onClick={
-        () => {
-          const spotPrice = prompt('Input new spot price (in ETH)')
+        async () => {
+          const spotPrice = await promptDialog('Input new spot price (in ETH)');
           setNewSpotPrice(spotPrice)
         }
       }>Change Spot Price</Button>
       <Button onClick={
-        () => {
-          const delta = prompt('Input new delta (in ETH)')
+        async () => {
+          const delta = await promptDialog('Input new delta (in ETH)');
           setNewDelta(delta)
         }
       }>Change Delta</Button>
@@ -367,8 +392,8 @@ export function MyListings() {
       </div> : <></>}
       {selectedRow?.ethExposure !== undefined ? <>
         <Button onClick={
-          () => {
-            const withd = prompt('Input withdrawal amount (in ETH)')
+          async () => {
+            const withd = await promptDialog('Input withdrawal amount (in ETH)')
             setWithdrawalAmount(withd)
           }
         }>Withdraw ETH</Button>

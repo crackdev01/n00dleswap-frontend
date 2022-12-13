@@ -1,7 +1,7 @@
+
 import React from "react";
-import Draggable from "react-draggable";
-import BigNumber from "bignumber.js";
 import { ThemeProvider } from "styled-components";
+
 import {
   AppBar,
   Toolbar,
@@ -11,15 +11,15 @@ import {
   Divider,
   Window,
   WindowHeader,
+  WindowContent,
 } from "react95";
 // pick a theme of your choice
 import original from "react95/dist/themes/original";
 // original Windows95 font (optionally)
 
-import { useAccount, useConnect, useEnsName, useNetwork, useSwitchNetwork  } from 'wagmi';
-import { createAlchemyWeb3 } from '@alch/alchemy-web3';
+import {useAccount, useConnect, useEnsName, useNetwork, useSwitchNetwork} from 'wagmi';
+
 import { InjectedConnector } from 'wagmi/connectors/injected';
-import ERC721 from './abis/ERC721.json';
 import { Wrapper, GlobalStyles } from './Styles';
 
 import logoIMG from './assets/noodlogo.png';
@@ -39,6 +39,8 @@ import { Rnd } from 'react-rnd';
 import {
   useWindowSize,
 } from '@react-hook/window-size';
+import { WalletOptionsModal } from "./windows/WalletOptionsModal";
+
 
 import logoIMG from "./assets/noodlogo.png";
 import InfoWindow from "./windows/Info";
@@ -55,7 +57,9 @@ import { MyListings } from "./windows/listingmgr/MyPools";
 import { XSushiStaking } from "./windows/staking/xSushiStaking";
 import { Rnd } from "react-rnd";
 import { useWindowSize } from "@react-hook/window-size";
-import { WalletOptionsModal } from "./windows/WalletOptionsModal";
+import { Modal } from "./windows/Modal";
+import { setModalStatus } from "./reducers/modal";
+import { ModalTypes } from "./constants/modalTypes";
 
 export default function Default() {
   const [open, setOpen] = React.useState(false);
@@ -70,6 +74,7 @@ export default function Default() {
     false || process.env.NODE_ENV === "development"
   );
   const windowStack = useSelector((state) => state.openWindow);
+  const { message } = useSelector((state) => state.modal);
   const dispatch = useDispatch();
   const setWindowStack = (a) => dispatch(openWindow(a));
   const windows = {
@@ -114,6 +119,9 @@ export default function Default() {
         const esheep = new window.eSheep();
         esheep.Start();
         setWindowStack({ action: "push", window: "n00d" });
+
+        if (address) setWindowStack({ action: "push", window: "walletSelector" });
+
         setInitialized(true);
       }
     }
@@ -142,12 +150,17 @@ export default function Default() {
   }
   const { chain } = useNetwork();
 
+
   const { switchNetwork } = useSwitchNetwork()
 
   if (chain?.id && chain?.id != 1 && chain?.id != 5) {
+  dispatch(setModalStatus({
+      type: ModalTypes.ERROR,
+      message: `Network ${chain?.id} not supported`
+    }))
     switchNetwork?.(1) // switch to ethereum network
+    
   };
-
   const { address, isConnected } = useAccount();
   const { data: ensName } = useEnsName({ address });
   const [windowPositions, setWindowPositions] = React.useState({});
@@ -156,49 +169,49 @@ export default function Default() {
     <Wrapper>
       <GlobalStyles></GlobalStyles>
       <ThemeProvider theme={original}>
-        {windowStack.map((window, i) => {
-          return (
-            <Rnd
-              key={window + i}
-              onDragStop={(e, data) => {
-                setWindowPositions((pos) => {
-                  return { ...pos, [window]: data };
-                });
-              }}
-              onResizeStop={(e, data, ref) => {
-                setWindowSizes((sizes) => {
-                  return { ...sizes, [window]: ref.style };
-                });
-                //e.stopImmediatePropagation()
-              }}
-              onClick={() => {
-                setWindowStack({ action: "focus", window: window });
-                setIexploreWindow(!iexploreWindow);
-              }}
-              default={{
-                x: width / 2 - 200 + i * 40,
-                y: 50 + i * 40,
-                width: 1000,
-              }}
-              position={windowPositions[window]}
-              size={windowSizes[window]}
-              minWidth={300}
-              dragHandleClassName="window-header"
-              enableResizing={{
-                bottom: true,
-                bottomLeft: false,
-                bottomRight: true,
-                left: false,
-                right: true,
-                top: false,
-                topLeft: false,
-                topRight: false,
-              }}
-              maxWidth={"100vw"}
-            >
-              <Window
-                style={{ width: "100%", height: "100%" }}
-                className="window"
+
+        {
+          windowStack.map((window, i) => {
+            return (
+              <Rnd
+                key={window + i}
+                onDragStop={(e, data) => {
+                  setWindowPositions(pos => {
+                    return {  ...pos, [window]: data }
+                  });
+                }}
+                onResizeStop={(e, data, ref) => {
+                  setWindowSizes(sizes => {
+                    return {  ...sizes, [window]: ref.style }
+                  });
+                  //e.stopImmediatePropagation()
+                }}
+                onClick={
+                  () => {
+                    setWindowStack({ action: 'focus', window: window });
+                    setIexploreWindow(!iexploreWindow);
+                  }}
+                default={{
+                  x: 50 + (i * 40),
+                  y: 50 + (i * 40),
+                  width: 1000,
+                }}
+                position={windowPositions[window]}
+                size={windowSizes[window]}
+                minWidth={300}
+                dragHandleClassName="window-header"
+                enableResizing={{
+                  bottom: true,
+                  bottomLeft: false,
+                  bottomRight: true,
+                  left: false,
+                  right: true,
+                  top: false,
+                  topLeft: false,
+                  topRight: false
+                }}
+                maxWidth={'100vw'}
+                maxHeight={'70vh'}
               >
                 <WindowHeader
                   active={i === windowStack.length - 1}
@@ -240,6 +253,7 @@ export default function Default() {
             </Rnd>
           );
         })}
+        {message.length > 0 && <Modal />}
 
         <AppBar>
           <Toolbar style={{ justifyContent: "space-between" }}>
@@ -266,7 +280,8 @@ export default function Default() {
                   onClick={() => setOpen(false)}
                 >
                   <ListItem disabled={address} onClick={onConnectButtonClicked}>
-                    <span role="img" aria-label="🔗">
+                    <span role='img' aria-label='🔗'>
+
                       🔗
                     </span>
                     {address ? "Connected" : "Connect Wallet"}
@@ -359,3 +374,4 @@ export default function Default() {
     </Wrapper>
   );
 }
+
